@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🔬 科研智能体</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <script src="https://cdn.bootcdn.net/ajax/libs/marked/12.0.0/marked.min.js"></script>
+  <script src="https://cdn.bootcdn.net/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="https://cdn.bootcdn.net/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+  <script src="https://cdn.bootcdn.net/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
+  <script src="https://cdn.bootcdn.net/ajax/libs/highlight.js/11.9.0/languages/json.min.js"></script>
+</head>
+<body>
+  <!-- 登录/注册 -->
+  <div id="auth-page">
+    <div class="auth-container">
+      <div class="auth-logo">🔬</div>
+      <h1 class="auth-title">科研智能体</h1>
+      <p class="auth-subtitle">AI-Powered Research Assistant</p>
+      <div id="login-form" class="auth-form">
+        <input type="text" id="login-username" placeholder="用户名" autocomplete="username">
+        <input type="password" id="login-password" placeholder="密码" autocomplete="current-password">
+        <button class="btn-primary" onclick="doLogin()">登 录</button>
+        <p class="auth-switch">还没有账号？<a href="#" onclick="showRegister()">立即注册</a></p>
+        <p id="login-error" class="auth-error"></p>
+      </div>
+      <div id="register-form" class="auth-form" style="display:none;">
+        <input type="text" id="reg-username" placeholder="用户名" autocomplete="username">
+        <input type="text" id="reg-display" placeholder="显示名称（可选）">
+        <input type="password" id="reg-password" placeholder="密码" autocomplete="new-password">
+        <input type="password" id="reg-password2" placeholder="确认密码" autocomplete="new-password">
+        <button class="btn-primary" onclick="doRegister()">注 册</button>
+        <p class="auth-switch">已有账号？<a href="#" onclick="showLogin()">返回登录</a></p>
+        <p id="reg-error" class="auth-error"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 主应用 -->
+  <div id="main-app" style="display:none;">
+    <aside id="sidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-logo">🔬</span>
+        <span class="sidebar-title">科研智能体</span>
+        <button class="btn-icon" onclick="newChat()" title="新建研究">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+      <div class="sidebar-sessions" id="session-list"></div>
+      <div class="sidebar-team">
+        <h3>研究团队</h3>
+        <div class="team-member" data-stage="literature_review"><span>📚</span> @文献调研研究员</div>
+        <div class="team-member" data-stage="hypothesis"><span>💡</span> @假设生成研究员</div>
+        <div class="team-member" data-stage="experiment_design"><span>📋</span> @实验设计研究员</div>
+        <div class="team-member" data-stage="experiment"><span>🧪</span> @代码实现研究员</div>
+        <div class="team-member" data-stage="analysis"><span>📊</span> @数据分析研究员</div>
+        <div class="team-member" data-stage="paper"><span>📝</span> @论文撰写研究员</div>
+        <div style="margin-top:12px;">
+          <button class="btn-memory" onclick="toggleMemoryPanel()">🧠 长期记忆</button>
+        </div>
+      </div>
+
+      <!-- 记忆面板 -->
+      <div id="memory-panel" style="display:none;">
+        <div class="memory-header">
+          <h3>🧠 长期记忆</h3>
+          <button class="btn-icon" onclick="toggleMemoryPanel()">✕</button>
+        </div>
+        <div class="memory-content" id="memory-content">
+          <p style="color:var(--text-muted)">加载中...</p>
+        </div>
+      </div>
+      <div class="sidebar-user">
+        <div class="user-avatar" id="user-avatar">U</div>
+        <span class="user-name" id="user-name">用户</span>
+        <button class="btn-icon" onclick="doLogout()" title="退出登录">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+        </button>
+      </div>
+    </aside>
+
+    <main id="main-content">
+      <div id="welcome-page">
+        <div class="welcome-inner">
+          <div class="welcome-icon">🔬</div>
+          <h1>开始你的科研之旅</h1>
+          <p>输入研究课题，AI 研究团队将协助你完成从文献调研到论文撰写的全流程</p>
+          <div class="welcome-input">
+            <textarea id="welcome-topic" placeholder="描述你的研究课题..." rows="3"></textarea>
+            <button class="btn-primary btn-lg" onclick="startFromWelcome()">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+              开始研究
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div id="chat-page" style="display:none;">
+        <header id="chat-header">
+          <div class="chat-header-left">
+            <button class="btn-icon sidebar-toggle" onclick="toggleSidebar()">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+            </button>
+            <h2 id="chat-title">新研究</h2>
+          </div>
+          <div class="stage-pills" id="stage-pills">
+            <span class="pill" data-stage="literature_review" title="文献调研">📚</span>
+            <span class="pill" data-stage="hypothesis" title="假设生成">💡</span>
+            <span class="pill" data-stage="experiment_design" title="实验设计">📋</span>
+            <span class="pill" data-stage="experiment" title="代码实现">🧪</span>
+            <span class="pill" data-stage="analysis" title="结果分析">📊</span>
+            <span class="pill" data-stage="paper" title="论文撰写">📝</span>
+          </div>
+        </header>
+
+        <div id="messages"></div>
+
+        <div id="input-area">
+          <div id="action-bar" style="display:none;">
+            <button class="btn-primary" onclick="doContinue()">✅ 确认继续</button>
+            <button class="btn-secondary" onclick="doStop()">⏹ 终止</button>
+          </div>
+          <div class="input-row">
+            <textarea id="chat-input" placeholder="输入补充信息..." rows="1" disabled></textarea>
+            <button class="btn-send" id="btn-send" onclick="sendFeedback()" disabled>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+            </button>
+          </div>
+          <div id="running-bar" style="display:none;">
+            <div class="typing-dots"><span></span><span></span><span></span></div>
+            <span id="running-label">研究员正在工作中...</span>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -203,6 +203,12 @@ cython_debug/
 # Temporary file for partial code execution
 tempCodeRunnerFile.py
 
+# Checkpoint database
+checkpoints.db
+sessions.db
+users.db
+memory.db
+
 # Ruff stuff:
 .ruff_cache/
 
