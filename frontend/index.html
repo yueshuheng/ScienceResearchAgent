@@ -1,9 +1,10 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>🔬 科研智能体</title>
+  <link rel="stylesheet" href="/tailwind.css">
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
   <script src="https://cdn.bootcdn.net/ajax/libs/marked/12.0.0/marked.min.js"></script>
@@ -11,132 +12,193 @@
   <script src="https://cdn.bootcdn.net/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
   <script src="https://cdn.bootcdn.net/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
   <script src="https://cdn.bootcdn.net/ajax/libs/highlight.js/11.9.0/languages/json.min.js"></script>
+  <style>html,body{height:100%;margin:0;overflow:hidden}#root{height:100%}</style>
 </head>
 <body>
-  <!-- 登录/注册 -->
-  <div id="auth-page">
-    <div class="auth-container">
-      <div class="auth-logo">🔬</div>
-      <h1 class="auth-title">科研智能体</h1>
-      <p class="auth-subtitle">AI-Powered Research Assistant</p>
-      <div id="login-form" class="auth-form">
-        <input type="text" id="login-username" placeholder="用户名" autocomplete="username">
-        <input type="password" id="login-password" placeholder="密码" autocomplete="current-password">
-        <button class="btn-primary" onclick="doLogin()">登 录</button>
-        <p class="auth-switch">还没有账号？<a href="#" onclick="showRegister()">立即注册</a></p>
-        <p id="login-error" class="auth-error"></p>
+<div id="root" class="size-full">
+
+  <!-- Auth -->
+  <div id="auth-page" class="size-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center relative">
+    <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-purple-900/20 via-transparent to-transparent pointer-events-none"></div>
+    <div class="w-[380px] text-center relative z-10">
+      <div class="text-6xl mb-3 drop-shadow-[0_0_20px_rgba(168,85,247,0.3)]">🔬</div>
+      <h1 class="text-2xl font-bold text-slate-100 mb-1">科研智能体</h1>
+      <p class="text-sm text-slate-500 mb-8">AI-Powered Research Assistant</p>
+
+      <div id="login-form" class="flex flex-col gap-3">
+        <input id="login-username" type="text" placeholder="用户名" autocomplete="username"
+          class="px-4 py-3 rounded-2xl backdrop-blur-xl bg-white/5 border border-white/10 text-slate-200 placeholder-slate-500 outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-400/50 transition-all duration-300">
+        <input id="login-password" type="password" placeholder="密码" autocomplete="current-password"
+          class="px-4 py-3 rounded-2xl backdrop-blur-xl bg-white/5 border border-white/10 text-slate-200 placeholder-slate-500 outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-400/50 transition-all duration-300">
+        <button onclick="doLogin()" class="py-3 rounded-2xl bg-gradient-to-br from-purple-500 to-blue-600 text-white font-semibold hover:from-purple-600 hover:to-blue-700 transition-all duration-300 hover:scale-[1.02] shadow-lg shadow-purple-500/25">登 录</button>
+        <p class="text-xs text-slate-500 mt-1">还没有账号？<a href="#" onclick="showRegister()" class="text-purple-400 hover:text-purple-300">立即注册</a></p>
+        <p id="login-error" class="text-xs text-red-400 min-h-[18px]"></p>
       </div>
-      <div id="register-form" class="auth-form" style="display:none;">
-        <input type="text" id="reg-username" placeholder="用户名" autocomplete="username">
-        <input type="text" id="reg-display" placeholder="显示名称（可选）">
-        <input type="password" id="reg-password" placeholder="密码" autocomplete="new-password">
-        <input type="password" id="reg-password2" placeholder="确认密码" autocomplete="new-password">
-        <button class="btn-primary" onclick="doRegister()">注 册</button>
-        <p class="auth-switch">已有账号？<a href="#" onclick="showLogin()">返回登录</a></p>
-        <p id="reg-error" class="auth-error"></p>
+
+      <div id="register-form" class="flex flex-col gap-3" style="display:none">
+        <input id="reg-username" type="text" placeholder="用户名" class="px-4 py-3 rounded-2xl backdrop-blur-xl bg-white/5 border border-white/10 text-slate-200 placeholder-slate-500 outline-none focus:ring-2 focus:ring-purple-500/50 transition-all duration-300">
+        <input id="reg-display" type="text" placeholder="显示名称（可选）" class="px-4 py-3 rounded-2xl backdrop-blur-xl bg-white/5 border border-white/10 text-slate-200 placeholder-slate-500 outline-none focus:ring-2 focus:ring-purple-500/50 transition-all duration-300">
+        <input id="reg-password" type="password" placeholder="密码" class="px-4 py-3 rounded-2xl backdrop-blur-xl bg-white/5 border border-white/10 text-slate-200 placeholder-slate-500 outline-none focus:ring-2 focus:ring-purple-500/50 transition-all duration-300">
+        <input id="reg-password2" type="password" placeholder="确认密码" class="px-4 py-3 rounded-2xl backdrop-blur-xl bg-white/5 border border-white/10 text-slate-200 placeholder-slate-500 outline-none focus:ring-2 focus:ring-purple-500/50 transition-all duration-300">
+        <button onclick="doRegister()" class="py-3 rounded-2xl bg-gradient-to-br from-purple-500 to-blue-600 text-white font-semibold hover:from-purple-600 hover:to-blue-700 transition-all duration-300 hover:scale-[1.02] shadow-lg shadow-purple-500/25">注 册</button>
+        <p class="text-xs text-slate-500 mt-1">已有账号？<a href="#" onclick="showLogin()" class="text-purple-400 hover:text-purple-300">返回登录</a></p>
+        <p id="reg-error" class="text-xs text-red-400 min-h-[18px]"></p>
       </div>
     </div>
   </div>
 
-  <!-- 主应用 -->
-  <div id="main-app" style="display:none;">
-    <aside id="sidebar">
-      <div class="sidebar-header">
-        <span class="sidebar-logo">🔬</span>
-        <span class="sidebar-title">科研智能体</span>
-        <button class="btn-icon" onclick="newChat()" title="新建研究">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+  <!-- Main App -->
+  <div id="main-app" class="size-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 flex overflow-hidden relative" style="display:none">
+    <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-purple-900/20 via-transparent to-transparent pointer-events-none"></div>
+    <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,_var(--tw-gradient-stops))] from-blue-900/20 via-transparent to-transparent pointer-events-none"></div>
+
+    <!-- Sidebar -->
+    <div id="sidebar" class="w-80 h-screen backdrop-blur-2xl bg-gradient-to-b from-slate-900/40 via-slate-800/30 to-slate-900/40 border-r border-white/5 flex flex-col relative z-10 transition-all duration-300">
+      <div class="p-6 flex items-center justify-between border-b border-white/5">
+        <div class="flex items-center gap-3">
+          <span class="text-xl">🔬</span>
+          <h2 class="text-slate-200 tracking-wide font-semibold sidebar-text">科研智能体</h2>
+        </div>
+        <button onclick="newChat()" class="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-all duration-300 group" title="新建研究">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-slate-400 group-hover:text-slate-200"><path d="M12 5v14M5 12h14"/></svg>
         </button>
       </div>
-      <div class="sidebar-sessions" id="session-list"></div>
-      <div class="sidebar-team">
-        <h3>研究团队</h3>
-        <div class="team-member" data-stage="literature_review"><span>📚</span> @文献调研研究员</div>
-        <div class="team-member" data-stage="hypothesis"><span>💡</span> @假设生成研究员</div>
-        <div class="team-member" data-stage="experiment_design"><span>📋</span> @实验设计研究员</div>
-        <div class="team-member" data-stage="experiment"><span>🧪</span> @代码实现研究员</div>
-        <div class="team-member" data-stage="analysis"><span>📊</span> @数据分析研究员</div>
-        <div class="team-member" data-stage="paper"><span>📝</span> @论文撰写研究员</div>
-        <div style="margin-top:12px;">
-          <button class="btn-memory" onclick="toggleMemoryPanel()">🧠 长期记忆</button>
+
+      <!-- Sessions -->
+      <div id="session-list" class="flex-1 overflow-y-auto px-4 py-3 space-y-1 sidebar-text custom-scrollbar"></div>
+
+      <!-- Team -->
+      <div class="border-t border-white/5 p-4 sidebar-text">
+        <label class="block text-xs text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+          研究团队
+        </label>
+        <div class="space-y-1">
+          <div class="team-member text-xs text-slate-500 flex items-center gap-2 py-1" data-stage="literature_review"><span>📚</span> @文献调研研究员</div>
+          <div class="team-member text-xs text-slate-500 flex items-center gap-2 py-1" data-stage="hypothesis"><span>💡</span> @假设生成研究员</div>
+          <div class="team-member text-xs text-slate-500 flex items-center gap-2 py-1" data-stage="experiment_design"><span>📋</span> @实验设计研究员</div>
+          <div class="team-member text-xs text-slate-500 flex items-center gap-2 py-1" data-stage="experiment"><span>🧪</span> @代码实现研究员</div>
+          <div class="team-member text-xs text-slate-500 flex items-center gap-2 py-1" data-stage="analysis"><span>📊</span> @数据分析研究员</div>
+          <div class="team-member text-xs text-slate-500 flex items-center gap-2 py-1" data-stage="paper"><span>📝</span> @论文撰写研究员</div>
         </div>
       </div>
 
-      <!-- 记忆面板 -->
-      <div id="memory-panel" style="display:none;">
-        <div class="memory-header">
-          <h3>🧠 长期记忆</h3>
-          <button class="btn-icon" onclick="toggleMemoryPanel()">✕</button>
-        </div>
-        <div class="memory-content" id="memory-content">
-          <p style="color:var(--text-muted)">加载中...</p>
-        </div>
-      </div>
-      <div class="sidebar-user">
-        <div class="user-avatar" id="user-avatar">U</div>
-        <span class="user-name" id="user-name">用户</span>
-        <button class="btn-icon" onclick="doLogout()" title="退出登录">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+      <!-- Memory -->
+      <div class="border-t border-white/5 p-4 sidebar-text">
+        <button onclick="toggleMemoryPanel()" class="w-full p-3 rounded-xl bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-purple-500/20 backdrop-blur-sm text-xs text-purple-300 text-left flex items-center gap-2 hover:from-purple-500/20 hover:to-blue-500/20 transition-all duration-300">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 110 20 10 10 0 010-20z"/><path d="M12 6v6l4 2"/></svg>
+          🧠 长期记忆
         </button>
       </div>
-    </aside>
 
-    <main id="main-content">
-      <div id="welcome-page">
-        <div class="welcome-inner">
-          <div class="welcome-icon">🔬</div>
-          <h1>开始你的科研之旅</h1>
-          <p>输入研究课题，AI 研究团队将协助你完成从文献调研到论文撰写的全流程</p>
-          <div class="welcome-input">
-            <textarea id="welcome-topic" placeholder="描述你的研究课题..." rows="3"></textarea>
-            <button class="btn-primary btn-lg" onclick="startFromWelcome()">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-              开始研究
-            </button>
+      <!-- User -->
+      <div class="border-t border-white/5 p-4 flex items-center gap-3">
+        <div id="user-avatar" class="w-9 h-9 rounded-full bg-gradient-to-br from-purple-500/30 to-blue-600/30 ring-2 ring-purple-500/30 flex items-center justify-center text-sm font-semibold text-purple-300">U</div>
+        <div class="flex-1 sidebar-text">
+          <p id="user-name" class="text-sm text-slate-200">用户</p>
+        </div>
+        <button onclick="doLogout()" class="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-all duration-300" title="退出">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-slate-400"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Memory Panel -->
+    <div id="memory-panel" class="absolute top-0 left-80 w-[380px] h-screen backdrop-blur-2xl bg-gradient-to-b from-slate-900/60 via-slate-800/40 to-slate-900/60 border-r border-white/5 z-50 flex flex-col shadow-2xl" style="display:none">
+      <div class="p-5 flex items-center justify-between border-b border-white/5">
+        <h3 class="text-slate-200 font-semibold">🧠 长期记忆</h3>
+        <button onclick="toggleMemoryPanel()" class="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-all text-slate-400">✕</button>
+      </div>
+      <div id="memory-content" class="flex-1 overflow-y-auto p-4 custom-scrollbar"></div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="flex-1 relative flex flex-col z-10">
+
+      <!-- Welcome -->
+      <div id="welcome-page" class="flex-1 flex items-center justify-center">
+        <div class="text-center max-w-xl px-6">
+          <div class="text-6xl mb-4 drop-shadow-[0_0_30px_rgba(168,85,247,0.3)]">🔬</div>
+          <h1 class="text-2xl font-bold text-slate-100 mb-2">开始你的科研之旅</h1>
+          <p class="text-sm text-slate-400 mb-8 leading-relaxed">输入研究课题，AI 研究团队将协助你完成从文献调研到论文撰写的全流程</p>
+
+          <!-- Mode Switch -->
+          <div class="flex gap-1 p-1 rounded-2xl backdrop-blur-sm bg-white/5 border border-white/10 mb-4">
+            <button id="mode-workflow" onclick="setMode('workflow')" class="mode-btn active">📋 Workflow</button>
+            <button id="mode-chat" onclick="setMode('chat')" class="mode-btn inactive">💬 Chat</button>
           </div>
+          <p id="mode-desc" class="text-xs text-slate-500 mb-4">固定流程：文献→假设→实验→分析→论文，每步确认</p>
+
+          <textarea id="welcome-topic" rows="3" placeholder="描述你的研究课题..."
+            class="w-full px-5 py-4 rounded-3xl backdrop-blur-xl bg-white/5 border border-white/10 text-slate-200 placeholder-slate-500 outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-400/50 transition-all duration-300 resize-none mb-4 text-sm"></textarea>
+
+          <button onclick="startFromWelcome()" class="w-full py-4 rounded-3xl bg-gradient-to-br from-purple-500 to-blue-600 text-white font-semibold hover:from-purple-600 hover:to-blue-700 transition-all duration-300 hover:scale-[1.02] shadow-lg shadow-purple-500/25 flex items-center justify-center gap-2">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+            开始研究
+          </button>
         </div>
       </div>
 
-      <div id="chat-page" style="display:none;">
-        <header id="chat-header">
-          <div class="chat-header-left">
-            <button class="btn-icon sidebar-toggle" onclick="toggleSidebar()">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+      <!-- Chat Page -->
+      <div id="chat-page" class="flex-1 flex flex-col" style="display:none">
+        <!-- Header -->
+        <div class="flex items-center justify-between px-6 py-3 border-b border-white/5 backdrop-blur-xl bg-slate-900/20">
+          <div class="flex items-center gap-3">
+            <button onclick="toggleSidebar()" class="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-all duration-300">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-slate-400"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
             </button>
-            <h2 id="chat-title">新研究</h2>
+            <h2 id="chat-title" class="text-sm font-semibold text-slate-200">新研究</h2>
           </div>
-          <div class="stage-pills" id="stage-pills">
-            <span class="pill" data-stage="literature_review" title="文献调研">📚</span>
-            <span class="pill" data-stage="hypothesis" title="假设生成">💡</span>
-            <span class="pill" data-stage="experiment_design" title="实验设计">📋</span>
-            <span class="pill" data-stage="experiment" title="代码实现">🧪</span>
-            <span class="pill" data-stage="analysis" title="结果分析">📊</span>
-            <span class="pill" data-stage="paper" title="论文撰写">📝</span>
+          <div class="flex gap-1" id="stage-pills">
+            <span class="pill w-7 h-7 rounded-full flex items-center justify-center text-sm backdrop-blur-sm bg-white/5 border-2 border-transparent transition-all duration-300" data-stage="literature_review" title="文献调研">📚</span>
+            <span class="pill w-7 h-7 rounded-full flex items-center justify-center text-sm backdrop-blur-sm bg-white/5 border-2 border-transparent transition-all duration-300" data-stage="hypothesis" title="假设生成">💡</span>
+            <span class="pill w-7 h-7 rounded-full flex items-center justify-center text-sm backdrop-blur-sm bg-white/5 border-2 border-transparent transition-all duration-300" data-stage="experiment_design" title="实验设计">📋</span>
+            <span class="pill w-7 h-7 rounded-full flex items-center justify-center text-sm backdrop-blur-sm bg-white/5 border-2 border-transparent transition-all duration-300" data-stage="experiment" title="代码实现">🧪</span>
+            <span class="pill w-7 h-7 rounded-full flex items-center justify-center text-sm backdrop-blur-sm bg-white/5 border-2 border-transparent transition-all duration-300" data-stage="analysis" title="结果分析">📊</span>
+            <span class="pill w-7 h-7 rounded-full flex items-center justify-center text-sm backdrop-blur-sm bg-white/5 border-2 border-transparent transition-all duration-300" data-stage="paper" title="论文撰写">📝</span>
           </div>
-        </header>
+        </div>
 
-        <div id="messages"></div>
+        <!-- Messages -->
+        <div id="messages" class="flex-1 overflow-y-auto p-8 space-y-6 custom-scrollbar"></div>
 
-        <div id="input-area">
-          <div id="action-bar" style="display:none;">
-            <button class="btn-primary" onclick="doContinue()">✅ 确认继续</button>
-            <button class="btn-secondary" onclick="doStop()">⏹ 终止</button>
-          </div>
-          <div class="input-row">
-            <textarea id="chat-input" placeholder="输入补充信息..." rows="1" disabled></textarea>
-            <button class="btn-send" id="btn-send" onclick="sendFeedback()" disabled>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-            </button>
-          </div>
-          <div id="running-bar" style="display:none;">
-            <div class="typing-dots"><span></span><span></span><span></span></div>
-            <span id="running-label">研究员正在工作中...</span>
+        <!-- Input -->
+        <div class="p-8 border-t border-white/5 backdrop-blur-xl bg-slate-900/20">
+          <div class="max-w-4xl mx-auto">
+            <div id="action-bar" class="flex gap-2 mb-3 justify-center" style="display:none">
+              <button onclick="doContinue()" class="px-5 py-2.5 rounded-2xl bg-gradient-to-br from-purple-500 to-blue-600 text-white text-sm font-semibold hover:scale-[1.03] transition-all shadow-lg shadow-purple-500/25">✅ 确认继续</button>
+              <button onclick="doStop()" class="px-5 py-2.5 rounded-2xl backdrop-blur-xl bg-white/5 border border-white/10 text-slate-400 text-sm hover:bg-white/10 transition-all">⏹ 终止</button>
+            </div>
+            <div class="relative">
+              <textarea id="chat-input" rows="1" placeholder="输入消息..." disabled
+                class="w-full px-6 py-4 pr-14 rounded-3xl backdrop-blur-xl bg-white/5 border border-white/10 text-slate-200 placeholder-slate-500 outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-400/50 transition-all duration-300 resize-none text-sm"></textarea>
+              <button id="btn-send" onclick="sendFeedback()" disabled
+                class="absolute right-2 top-1/2 -translate-y-1/2 p-3 rounded-2xl bg-gradient-to-br from-purple-500 to-blue-600 hover:from-purple-600 hover:to-blue-700 transition-all duration-300 hover:scale-105 shadow-lg shadow-purple-500/25 disabled:opacity-20 disabled:hover:scale-100">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+              </button>
+            </div>
+            <div id="running-bar" class="flex items-center gap-2 justify-center mt-3" style="display:none">
+              <div class="flex gap-1"><span class="w-1.5 h-1.5 rounded-full bg-purple-500 animate-bounce" style="animation-delay:0s"></span><span class="w-1.5 h-1.5 rounded-full bg-purple-500 animate-bounce" style="animation-delay:.15s"></span><span class="w-1.5 h-1.5 rounded-full bg-purple-500 animate-bounce" style="animation-delay:.3s"></span></div>
+              <span id="running-label" class="text-xs text-slate-500">研究员正在工作中...</span>
+            </div>
+            <p class="text-xs text-slate-500 mt-3 text-center">Enter 发送 · Shift+Enter 换行</p>
           </div>
         </div>
       </div>
-    </main>
+    </div>
   </div>
+</div>
 
-  <script src="/app.js"></script>
+<script src="/app.js"></script>
+<style>
+  .custom-scrollbar::-webkit-scrollbar{width:6px}
+  .custom-scrollbar::-webkit-scrollbar-track{background:rgba(255,255,255,.02);border-radius:10px}
+  .custom-scrollbar::-webkit-scrollbar-thumb{background:rgba(255,255,255,.08);border-radius:10px}
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.14)}
+  .pill.active{border-color:rgba(168,85,247,.6)!important;background:rgba(168,85,247,.15)!important;transform:scale(1.12)}
+  .pill.done{border-color:rgba(16,185,129,.5)!important;background:rgba(16,185,129,.1)!important}
+  .team-member.active{color:#a78bfa!important;font-weight:600}
+  .team-member.done{color:#10b981!important}
+</style>
 </body>
 </html>

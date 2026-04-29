@@ -90,6 +90,7 @@ def _init_sessions_db():
             topic TEXT DEFAULT '',
             status TEXT DEFAULT 'idle',
             current_stage TEXT DEFAULT '',
+            mode TEXT DEFAULT 'workflow',
             messages TEXT DEFAULT '[]',
             created_at TEXT DEFAULT (datetime('now')),
             updated_at TEXT DEFAULT (datetime('now'))
@@ -113,6 +114,7 @@ def _load_session(sid: str) -> dict | None:
     return {
         "id": row["id"], "user_id": row["user_id"], "topic": row["topic"],
         "status": row["status"], "current_stage": row["current_stage"],
+        "mode": row["mode"] if "mode" in row.keys() else "workflow",
         "messages": json.loads(row["messages"]), "created_at": row["created_at"],
     }
 
@@ -463,7 +465,13 @@ def stream_sse(session_id: str, request: Request):
             yield f"event: {event}\ndata: {data_escaped}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+                             headers={
+                                 "Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "X-Accel-Buffering": "no",
+                                 "Connection": "keep-alive",
+                                 "Content-Type": "text/event-stream; charset=utf-8",
+                                 "ngrok-skip-browser-warning": "true",
+                             })
 
 
 @app.get("/api/status")
@@ -482,6 +490,207 @@ def get_status(session_id: str, request: Request):
 def list_sessions(request: Request):
     user_id = get_current_user(request)
     return {"sessions": _get_user_sessions(user_id)}
+
+
+# ── Chat 模式 API ────────────────────────────────────────────
+
+class ChatRequest(BaseModel):
+    session_id: str | None = None
+    message: str
+    topic: str = ""
+
+
+def _run_chat_turn(sid: str, user_id: int, message: str, topic: str):
+    """后台线程：执行一轮 Chat 模式对话"""
+    session = _load_session(sid)
+    if not session:
+        _end_sse(sid)
+        return
+
+    messages = session["messages"]
+    log.info(f"[{sid}] Chat turn | message={message[:50]}")
+
+    try:
+        from research_agent.chat_mode import chat_turn
+        from research_agent.memory import build_memory_context
+
+        memory_ctx = build_memory_context(user_id)
+        new_msgs = chat_turn(sid, user_id, message, messages, memory_ctx)
+
+        messages.extend(new_msgs)
+        current_stage = ""
+        for m in reversed(new_msgs):
+            if m.get("stage") and m["stage"] != "lead":
+                current_stage = m["stage"]
+                break
+
+        _save_session(sid, user_id, topic or session["topic"], "waiting", current_stage, messages)
+        _send_sse(sid, "stage_done", {"status": "waiting", "stage": current_stage})
+
+    except Exception as e:
+        log.error(f"[{sid}] Chat turn 异常: {e}", exc_info=True)
+        messages.append({"role": "system", "agent": "Mock", "stage": "",
+                         "content": f"⚠️ 错误: {str(e)}"})
+        _save_session(sid, user_id, topic or session["topic"], "waiting", "", messages)
+        _send_sse(sid, "error", {"message": str(e)})
+
+    import time
+    time.sleep(0.3)
+    _end_sse(sid)
+    log.info(f"[{sid}] Chat turn SSE 流结束")
+
+
+# ── 讨论模式 API ─────────────────────────────────────────────
+
+class DebateStartRequest(BaseModel):
+    topic: str
+    max_rounds: int = 5
+
+class DebateMessageRequest(BaseModel):
+    session_id: str
+    message: str = ""
+
+
+def _run_debate_round(sid: str, user_id: int, user_message: str | None = None):
+    """后台线程：执行一轮讨论"""
+    session = _load_session(sid)
+    if not session:
+        _end_sse(sid)
+        return
+
+    messages = session["messages"]
+    topic = session["topic"]
+    # max_rounds 存在 session 的 current_stage 字段里（复用）
+    max_rounds = int(session.get("current_stage") or 5)
+
+    try:
+        from research_agent.debate import run_debate
+
+        new_msgs = run_debate(
+            sid=sid,
+            topic=topic,
+            max_rounds=max_rounds,
+            history=messages,
+            user_interrupt=user_message,
+        )
+
+        messages.extend(new_msgs)
+
+        # 检查是否讨论结束
+        from research_agent.debate import _count_rounds
+        rounds_done = _count_rounds(messages)
+        is_done = rounds_done >= max_rounds
+
+        status = "done" if is_done else "waiting"
+        _save_session(sid, user_id, topic, status, str(max_rounds), messages)
+
+        if is_done:
+            _send_sse(sid, "done", {"status": "done"})
+        else:
+            _send_sse(sid, "stage_done", {"status": "waiting", "stage": "debate"})
+
+    except Exception as e:
+        log.error(f"[{sid}] Debate 异常: {e}", exc_info=True)
+        messages.append({"role": "system", "agent": "", "stage": "",
+                         "content": f"⚠️ 讨论出错: {str(e)}"})
+        _save_session(sid, user_id, topic, "waiting", str(max_rounds), messages)
+        _send_sse(sid, "error", {"message": str(e)})
+
+    import time
+    time.sleep(0.3)
+    _end_sse(sid)
+
+
+@app.post("/api/debate/start")
+def start_debate(req: DebateStartRequest, request: Request):
+    """启动 Agent 讨论"""
+    user_id = get_current_user(request)
+    sid = f"d-{uuid.uuid4().hex[:8]}"
+    log.info(f"[{sid}] 新讨论 | user={user_id} topic={req.topic[:50]} rounds={req.max_rounds}")
+
+    messages = [
+        {"role": "user", "agent": "用户", "stage": "", "content": f"讨论课题：{req.topic}"},
+        {"role": "system", "agent": "", "stage": "",
+         "content": f"🎯 讨论开始！最大 {req.max_rounds} 轮，目标：找到一个切实可行的创新点。"},
+    ]
+    # 用 current_stage 存 max_rounds
+    _save_session(sid, user_id, req.topic, "running", str(req.max_rounds), messages)
+
+    from research_agent.streaming import create_stream
+    create_stream(sid)
+
+    t = threading.Thread(target=_run_debate_round, args=(sid, user_id))
+    t.start()
+
+    return {"session_id": sid, "status": "running", "mode": "debate"}
+
+
+@app.post("/api/debate/continue")
+def continue_debate(req: DebateMessageRequest, request: Request):
+    """继续讨论 / 用户插入发言（即使讨论已结束也可追问）"""
+    user_id = get_current_user(request)
+    session = _load_session(req.session_id)
+    if not session or session["user_id"] != user_id:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    messages = session["messages"]
+    if req.message:
+        messages.append({"role": "user", "agent": "用户", "stage": "", "content": req.message})
+
+    # 如果已结束，重置 max_rounds 追加 2 轮继续讨论
+    max_rounds = int(session.get("current_stage") or 5)
+    if session["status"] == "done":
+        from research_agent.debate import _count_rounds
+        done_rounds = _count_rounds(messages)
+        max_rounds = done_rounds + 2
+        messages.append({"role": "system", "agent": "", "stage": "",
+                         "content": f"📢 讨论重新开启，追加 2 轮。"})
+
+    _save_session(req.session_id, user_id, session["topic"], "running",
+                  str(max_rounds), messages)
+
+    from research_agent.streaming import create_stream
+    create_stream(req.session_id)
+
+    t = threading.Thread(
+        target=_run_debate_round,
+        args=(req.session_id, user_id, req.message if req.message else None),
+    )
+    t.start()
+
+    return {"status": "running"}
+
+
+@app.post("/api/chat")
+def chat_message(req: ChatRequest, request: Request):
+    """Chat 模式：自由对话，Lead Agent 按需调用子智能体"""
+    user_id = get_current_user(request)
+
+    # 新会话或已有会话
+    if req.session_id:
+        sid = req.session_id
+        session = _load_session(sid)
+        if not session or session["user_id"] != user_id:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        messages = session["messages"]
+    else:
+        sid = f"c-{uuid.uuid4().hex[:8]}"
+        messages = []
+
+    # 添加用户消息
+    messages.append({"role": "user", "agent": "用户", "stage": "", "content": req.message})
+    topic = req.topic or (messages[0]["content"][:50] if messages else req.message[:50])
+    _save_session(sid, user_id, topic, "running", "", messages)
+
+    log.info(f"[{sid}] Chat 模式 | user={user_id} msg={req.message[:50]}")
+
+    from research_agent.streaming import create_stream
+    create_stream(sid)
+
+    t = threading.Thread(target=_run_chat_turn, args=(sid, user_id, req.message, topic))
+    t.start()
+
+    return {"session_id": sid, "status": "running", "mode": "chat"}
 
 
 # ── 记忆 API ─────────────────────────────────────────────────
@@ -522,15 +731,27 @@ def delete_archive(archive_id: int, request: Request):
 
 # ── 前端页面 ──────────────────────────────────────────────────
 
-@app.get("/", response_class=HTMLResponse)
-def index():
-    with open("frontend/index.html", "r", encoding="utf-8") as f:
-        return f.read()
+# React 构建产物目录
+REACT_DIST = os.path.join(os.path.dirname(__file__), "Futuristic AI Chat Interface", "dist")
 
-@app.get("/app.js")
-def app_js():
-    return FileResponse("frontend/app.js", media_type="application/javascript")
+@app.get("/assets/{path:path}")
+def serve_assets(path: str):
+    """Serve Vite build assets (JS/CSS chunks)"""
+    file_path = os.path.join(REACT_DIST, "assets", path)
+    if os.path.isfile(file_path):
+        return FileResponse(file_path)
+    raise HTTPException(status_code=404)
 
-@app.get("/style.css")
-def style_css():
-    return FileResponse("frontend/style.css", media_type="text/css")
+@app.get("/{path:path}")
+def serve_spa(path: str):
+    """SPA fallback: serve index.html for all non-API routes"""
+    # Try to serve the exact file first (e.g. favicon.ico)
+    file_path = os.path.join(REACT_DIST, path)
+    if path and os.path.isfile(file_path):
+        return FileResponse(file_path)
+    # Fallback to index.html for SPA routing
+    index = os.path.join(REACT_DIST, "index.html")
+    if os.path.isfile(index):
+        return FileResponse(index, media_type="text/html")
+    # Dev fallback: serve old frontend if React not built yet
+    return FileResponse("frontend/index.html", media_type="text/html")
