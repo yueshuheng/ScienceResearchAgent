@@ -729,6 +729,31 @@ def delete_archive(archive_id: int, request: Request):
     return {"ok": True}
 
 
+# ── 代码沙箱执行 API ─────────────────────────────────────────
+
+class CodeExecuteRequest(BaseModel):
+    code: str
+    language: str = "python"
+    timeout: int = 30
+
+
+@app.post("/api/code/execute")
+def execute_code_api(req: CodeExecuteRequest, request: Request):
+    """在安全沙箱中执行代码"""
+    user_id = get_current_user(request)
+    log.info(f"代码执行请求 | user={user_id} lang={req.language} len={len(req.code)}")
+
+    from research_agent.sandbox import execute_code
+    result = execute_code(
+        code=req.code,
+        timeout=req.timeout,
+        language=req.language,
+    )
+
+    log.info(f"代码执行结果 | user={user_id} success={result.success} duration={result.duration}s")
+    return result.to_dict()
+
+
 # ── 前端页面 ──────────────────────────────────────────────────
 
 # React 构建产物目录
