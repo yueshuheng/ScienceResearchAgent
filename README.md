@@ -1,181 +1,218 @@
 # 🔬 科研智能体 (Research Agent)
 
-基于 LangChain + LangGraph + Kimi K2.5 的多阶段科研工作流智能体，支持 Web 前端对话、流式输出、长期记忆。
+基于 LangChain + LangGraph + Kimi K2.5 的多阶段科研工作流智能体，支持 Web 前端对话、流式输出、代码沙箱执行、长期记忆。
 
 ## 功能特性
 
 - 🤖 **6 位 AI 研究员**：文献调研、假设生成、实验设计、代码实现、数据分析、论文撰写
+- 💻 **代码沙箱**：自动生成、验证、执行、修复代码（Agent Loop），实时终端输出
 - 📚 **真实论文搜索**：arXiv 多策略搜索（最新 + 相关性），基于真实文献生成综述
+- 🏟️ **多 Agent 讨论**：文献专家、方法专家、实验专家、批判者围绕课题讨论创新点
 - 🔄 **Human-in-the-loop**：每个阶段完成后暂停，用户可确认、补充信息或终止
 - 📡 **SSE 流式输出**：LLM 逐 token 实时推送到前端，打字机效果
 - 🧠 **长期记忆**：自动提取用户画像和研究档案，跨会话记忆
+- ⚙️ **可配置**：前端设置面板配置 Python 环境、工作目录、大模型参数
 - 💾 **持久化存储**：SQLite 保存 checkpoint、会话、用户数据、记忆
 - 👤 **用户系统**：注册/登录，JWT 认证，多用户隔离
-- 🌐 **公网穿透**：一键 ngrok 穿透，分享链接即可访问
-- 🎨 **React 前端**：基于 Vite + Tailwind + shadcn/ui 的现代化暗色界面
 
-## 研究流程
+## 环境要求
 
-```
-用户输入课题
-    ↓
-📚 @文献调研研究员 → arXiv 搜索 + LLM 综述
-    ↓ 用户确认（可补充论文）
-💡 @假设生成研究员 → 提出可验证的科学假设
-    ↓ 用户确认
-📋 @实验设计研究员 → 数据集/模型/评估指标方案（thinking 模式）
-    ↓ 用户确认
-🧪 @代码实现研究员 → 生成实验代码 + 自动语法检查（thinking 模式）
-    ↓ 用户确认
-📊 @数据分析研究员 → 结果分析与讨论
-    ↓ 用户确认
-📝 @论文撰写研究员 → 完整论文初稿
-    ↓
-🧠 自动提取长期记忆
-```
+- **Python** >= 3.10（推荐 3.11+）
+- **Node.js** >= 18
+- **操作系统**：Windows / macOS / Linux
 
 ## 快速开始
 
-### 1. 安装依赖
+### 1. 克隆项目
 
 ```bash
-# Python 依赖
-uv venv .venv
-uv pip install -r research_agent/requirements.txt \
-  --python .venv/Scripts/python.exe \
-  --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+git clone <repo-url>
+cd ScienceResearchAgent
+```
 
-# 前端依赖（需要 Node.js >= 18）
+### 2. 创建 Python 虚拟环境
+
+```bash
+# 使用 uv（推荐）
+uv venv .venv
+
+# 或使用标准 venv
+python -m venv .venv
+```
+
+### 3. 激活虚拟环境
+
+```bash
+# Windows (CMD)
+.venv\Scripts\activate.bat
+
+# Windows (PowerShell)
+.venv\Scripts\Activate.ps1
+
+# macOS / Linux
+source .venv/bin/activate
+```
+
+### 4. 安装 Python 依赖
+
+```bash
+pip install -r research_agent/requirements.txt
+```
+
+完整依赖列表：
+
+```
+langchain>=0.2.0
+langgraph>=0.2.0
+langchain-moonshot>=0.1.0
+langgraph-checkpoint-sqlite>=1.0.0
+python-dotenv>=1.0.0
+fastapi>=0.100.0
+uvicorn>=0.20.0
+python-jose[cryptography]>=3.3.0
+passlib>=1.7.0
+bcrypt>=4.0.0
+```
+
+如果需要使用代码研究员运行 PyTorch 等科学计算代码，还需安装：
+
+```bash
+pip install torch torchvision numpy pandas matplotlib scikit-learn
+```
+
+### 5. 安装前端依赖并构建
+
+```bash
 cd "Futuristic AI Chat Interface"
 npm install
+npm run build
 cd ..
 ```
 
-### 2. 配置 API Key
+### 6. 配置环境变量
 
-```bash
-cp research_agent/.env.example .env
-```
-
-编辑 `.env`，填入 Moonshot API Key（在 [platform.moonshot.cn](https://platform.moonshot.cn/console/api-keys) 获取）：
+创建 `.env` 文件（项目根目录）：
 
 ```env
 MOONSHOT_API_KEY=sk-your-key-here
 MOONSHOT_API_BASE=https://api.moonshot.cn/v1
 ```
 
-### 3. 一键启动
+API Key 在 [platform.moonshot.cn](https://platform.moonshot.cn/console/api-keys) 获取。
+
+也支持其他 OpenAI 兼容接口（DeepSeek、OpenAI 等），启动后在前端 **设置** 面板中修改。
+
+### 7. 一键启动
 
 ```bash
-# 本地启动（自动构建前端）
-python start.py
+# Windows - 双击 start.bat
+start.bat
 
-# 公网穿透版（分享链接给他人访问）
-python start.py --tunnel
-python start.py --tunnel --token YOUR_NGROK_TOKEN
-
-# 自定义端口
-python start.py --port 9000
-
-# 开发模式（后端热重载，前端需另开终端 npm run dev）
-python start.py --dev
+# 或手动启动
+uvicorn server:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 浏览器打开 `http://localhost:8000`，注册账号后即可使用。
 
-### 4. 前端开发
+## 使用模式
 
-```bash
-# 终端 1：启动后端
-python start.py --dev
+| 模式 | 说明 |
+|------|------|
+| 📋 Workflow | 固定流程：文献→假设→实验→分析→论文，每步确认 |
+| 💬 Chat | 自由对话：@项目负责人 按需调用研究员（含代码研究员） |
+| 🏟️ 讨论室 | 多 Agent 讨论：围绕课题讨论创新点 |
 
-# 终端 2：启动前端 dev server（热更新）
-cd "Futuristic AI Chat Interface"
-npm run dev
-# 访问 http://localhost:5173，API 自动代理到后端
-```
+### 代码研究员
 
-### 5. 桌面客户端（可选）
+在 Chat 模式中，当你请求编写或运行代码时，项目负责人会自动调用 **@代码实现研究员**：
 
-```bash
-# 安装 Electron 依赖（首次）
-cd desktop
-npm install
+1. 🤔 分析需求
+2. ✍️ 生成代码
+3. 🔍 语法检查（AST 解析）
+4. ▶️ 在沙箱中执行（实时终端输出）
+5. 🔧 如果失败，自动分析错误并修复（最多 3 次）
+6. ✅ 返回结果
 
-# 启动桌面客户端（会自动启动后端）
-npm start
-# 或双击 desktop/start.bat
-```
+沙箱支持：
+- `pip_install()` 安装依赖
+- `shell_exec()` 执行 shell 命令
+- `fs_read()` / `fs_write()` 文件读写
+- 指定工作目录访问本地数据
 
-### 6. CLI 模式（可选）
+## 前端设置
 
-```bash
-python run.py                # 新建研究会话
-python run.py --resume       # 恢复上次会话
-```
+点击侧边栏 **⚙️ 设置** 按钮，可配置：
+
+- **Python 解释器路径**：指定 venv/conda 环境
+- **工作目录**：代码执行的工作目录（可访问本地数据）
+- **模型名称**：如 `kimi-k2.5`、`gpt-4o`、`deepseek-chat`
+- **API Base URL**：模型服务地址
+- **API Key**：模型 API 密钥
 
 ## 项目结构
 
 ```
-├── start.py                         # 🚀 一键启动脚本（本地 / 穿透）
-├── server.py                        # FastAPI Web 服务（SSE 流式 + 认证）
-├── run.py                           # CLI 交互入口
-├── tunnel.py                        # 旧版穿透脚本（已被 start.py 替代）
-├── desktop/                         # Electron 桌面客户端
-│   ├── main.js                      # Electron 主进程（自动启动后端）
-│   ├── preload.js                   # 预加载脚本
-│   ├── start.bat                    # Windows 一键启动
-│   └── package.json
-├── Futuristic AI Chat Interface/    # React 前端（Vite + Tailwind + shadcn/ui）
-│   ├── src/
-│   │   ├── app/
-│   │   │   ├── App.tsx              # 主应用（认证 + 路由）
-│   │   │   ├── components/
-│   │   │   │   ├── AuthPage.tsx     # 登录/注册页
-│   │   │   │   ├── WelcomePage.tsx  # 欢迎页（模式选择 + 课题输入）
-│   │   │   │   ├── ChatWindow.tsx   # 聊天窗口（SSE 流式 + Markdown）
-│   │   │   │   ├── Sidebar.tsx      # 侧边栏（会话列表 + 团队 + 记忆）
-│   │   │   │   ├── MemoryPanel.tsx  # 长期记忆面板
-│   │   │   │   └── ui/             # shadcn/ui 基础组件
-│   │   │   ├── contexts/
-│   │   │   │   ├── AuthContext.tsx   # 认证状态管理
-│   │   │   │   └── ChatContext.tsx   # 聊天/会话/SSE 状态管理
-│   │   │   └── lib/
-│   │   │       ├── api.ts           # API 请求工具
-│   │   │       ├── constants.ts     # 阶段/头像/标签常量
-│   │   │       └── markdown.ts      # Markdown 渲染
-│   │   └── styles/                  # Tailwind + 主题 CSS
-│   ├── dist/                        # 构建产物（由 server.py 托管）
-│   ├── vite.config.ts               # Vite 配置（含 API 代理）
-│   └── package.json
-├── frontend/                        # 旧版原生 HTML/JS 前端（备份）
+├── start.bat                        # 🚀 Windows 一键启动
+├── start.ps1                        # 🚀 PowerShell 启动脚本
+├── server.py                        # FastAPI Web 服务
+├── .env                             # 环境变量（API Key）
+├── settings.json                    # 用户设置（自动生成）
+├── Futuristic AI Chat Interface/    # React 前端
+│   ├── src/app/
+│   │   ├── components/
+│   │   │   ├── ChatWindow.tsx       # 聊天窗口
+│   │   │   ├── AgentSteps.tsx       # Agent 步骤面板（终端输出）
+│   │   │   ├── CodeBlock.tsx        # 代码块（可运行）
+│   │   │   ├── SettingsPanel.tsx    # 设置面板
+│   │   │   ├── Sidebar.tsx          # 侧边栏
+│   │   │   └── MemoryPanel.tsx      # 长期记忆面板
+│   │   ├── contexts/
+│   │   │   ├── ChatContext.tsx      # 聊天/SSE 状态管理
+│   │   │   └── AuthContext.tsx      # 认证状态
+│   │   └── lib/
+│   │       ├── api.ts              # API 工具
+│   │       └── markdown.ts         # Markdown 渲染
+│   └── dist/                        # 构建产物
 ├── research_agent/
-│   ├── main.py                      # LangGraph 工作流定义
-│   ├── state.py                     # 共享状态（TypedDict）
-│   ├── auth.py                      # 用户认证（JWT + bcrypt）
-│   ├── memory.py                    # 长期记忆（用户画像 + 研究档案）
-│   ├── streaming.py                 # SSE 流式队列管理
-│   ├── chat_mode.py                 # Chat 自由对话模式
-│   ├── llm_utils.py                 # LLM 调用工具（流式 + 记忆注入）
-│   ├── logger.py                    # 日志配置
+│   ├── main.py                      # LangGraph 工作流
+│   ├── code_agent.py                # 代码研究员 Agent Loop
+│   ├── sandbox.py                   # 代码沙箱（安全执行）
+│   ├── chat_mode.py                 # Chat 模式（Lead Agent）
+│   ├── debate.py                    # 讨论模式
+│   ├── memory.py                    # 长期记忆
+│   ├── streaming.py                 # SSE 流式管理
+│   ├── auth.py                      # 用户认证
+│   ├── llm_utils.py                 # LLM 调用工具
 │   ├── agents/                      # 6 位 AI 研究员
 │   └── tools/
-│       └── scholar.py               # arXiv 论文搜索工具
-└── research_agent/
-    ├── requirements.txt             # Python 依赖
-    └── .env.example                 # 环境变量模板
+│       └── scholar.py               # arXiv 搜索
+└── desktop/                         # Electron 桌面客户端（可选）
 ```
 
 ## 技术栈
 
 | 组件 | 技术 |
 |------|------|
-| LLM | Kimi K2.5 (langchain-moonshot) |
+| LLM | Kimi K2.5 / OpenAI 兼容接口 |
 | 工作流 | LangGraph (StateGraph + interrupt) |
-| 持久化 | SQLite (langgraph-checkpoint-sqlite) |
+| 代码执行 | 子进程沙箱 + 实时输出流 |
 | 后端 | FastAPI + uvicorn |
-| 认证 | JWT (python-jose) + bcrypt |
+| 认证 | JWT + bcrypt |
 | 论文搜索 | arXiv API |
 | 流式输出 | SSE (Server-Sent Events) |
-| 前端 | React + Vite + Tailwind CSS + shadcn/ui |
-| 穿透 | ngrok (pyngrok) |
+| 前端 | React + Vite + Tailwind CSS |
+| 持久化 | SQLite |
+
+## 常见问题
+
+**Q: 代码研究员执行时报 `ModuleNotFoundError`？**
+
+在设置中配置正确的 Python 解释器路径，确保该环境已安装所需包。或者代码研究员会自动尝试 `pip_install()` 安装。
+
+**Q: 如何让代码访问本地数据文件？**
+
+在设置中配置"工作目录"为你的数据所在文件夹，代码执行时会以该目录为工作目录。
+
+**Q: 支持哪些大模型？**
+
+支持所有 OpenAI 兼容接口，包括 Moonshot (Kimi)、DeepSeek、OpenAI、Azure OpenAI 等。在设置中修改 model name 和 base URL 即可。

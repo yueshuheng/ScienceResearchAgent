@@ -39,7 +39,12 @@ def push_status(sid: str, event: str, data: dict):
     """推送状态事件（stage_start, stage_done, error, done）"""
     q = _queues.get(sid)
     if q:
-        q.put({"event": event, "data": json.dumps(data, ensure_ascii=False)})
+        # 确保 JSON 正确序列化，处理所有特殊字符
+        json_str = json.dumps(data, ensure_ascii=True)  # 使用 ASCII 确保所有特殊字符被转义
+        q.put({"event": event, "data": json_str})
+    else:
+        import sys
+        print(f"[WARN] push_status: no queue for {sid}, event={event}", file=sys.stderr)
 
 
 def push_end(sid: str):

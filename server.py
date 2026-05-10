@@ -459,9 +459,10 @@ def stream_sse(session_id: str, request: Request):
             event = item["event"]
             data = item["data"]
             if isinstance(data, dict):
-                data = json.dumps(data, ensure_ascii=False)
-            # 转义换行符用于 SSE
-            data_escaped = data.replace("\n", "\\n")
+                data = json.dumps(data, ensure_ascii=True)
+            # SSE 数据行不能包含真正的换行符
+            # 将所有控制字符替换为转义形式
+            data_escaped = data.replace("\r", "\\r").replace("\n", "\\n").replace("\t", "\\t")
             yield f"event: {event}\ndata: {data_escaped}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream",
@@ -729,6 +730,113 @@ def delete_archive(archive_id: int, request: Request):
     return {"ok": True}
 
 
+# ── 代码 Agent API ───────────────────────────────────────────
+
+class CodeAgentRequest(BaseModel):
+    session_id: str | None = None
+    task: str
+    context: str = ""
+
+
+def _run_code_agent(sid: str, user_id: int, task: str, context: str):
+    """后台线程：运行代码 Agent"""
+    session = _load_session(sid)
+    if not session:
+        _end_sse(sid)
+        return
+
+    messages = session["messages"]
+    log.info(f"[{sid}] Code Agent | task={task[:50]}")
+
+    try:
+        from research_agent.code_agent import run_code_agent
+        from research_agent.memory import build_memory_context
+
+        memory_ctx = build_memory_context(user_id)
+        
+        # 推送开始状态
+        _send_sse(sid, "agent_start", {"agent": "@代码实现研究员", "task": task[:100]})
+        
+        result = run_code_agent(
+            sid=sid,
+            user_id=user_id,
+            task=task,
+            context=context,
+            memory_context=memory_ctx,
+        )
+
+        # 构建响应消息
+        if result["success"]:
+            response_content = f"代码执行成功！\n\n```python\n{result['code']}\n```\n\n**执行输出：**\n```\n{result['output']}\n```"
+        else:
+            response_content = f"代码执行失败（尝试 {result['attempts']} 次）\n\n```python\n{result['code']}\n```\n\n**错误信息：**\n```\n{result['error']}\n```\n\n请告诉我需要如何调整，或者提供更多信息。"
+
+        messages.append({
+            "role": "agent",
+            "agent": "@代码实现研究员",
+            "stage": "experiment",
+            "content": response_content,
+            "agent_steps": result["steps"],  # 保存步骤供前端展示
+        })
+
+        _save_session(sid, user_id, session["topic"], "waiting", "experiment", messages)
+        _send_sse(sid, "agent_done", {
+            "success": result["success"],
+            "steps": result["steps"],
+        })
+
+    except Exception as e:
+        log.error(f"[{sid}] Code Agent 异常: {e}", exc_info=True)
+        messages.append({
+            "role": "system",
+            "agent": "",
+            "stage": "",
+            "content": f"⚠️ 代码执行出错: {str(e)}",
+        })
+        _save_session(sid, user_id, session["topic"], "waiting", "", messages)
+        _send_sse(sid, "error", {"message": str(e)})
+
+    import time
+    time.sleep(0.3)
+    _end_sse(sid)
+    log.info(f"[{sid}] Code Agent 完成")
+
+
+@app.post("/api/code/agent")
+def run_code_agent_api(req: CodeAgentRequest, request: Request):
+    """运行代码 Agent：自动生成、验证、执行、修复代码"""
+    user_id = get_current_user(request)
+
+    # 新会话或已有会话
+    if req.session_id:
+        sid = req.session_id
+        session = _load_session(sid)
+        if not session or session["user_id"] != user_id:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        messages = session["messages"]
+    else:
+        sid = f"code-{uuid.uuid4().hex[:8]}"
+        messages = []
+
+    # 添加用户消息
+    messages.append({"role": "user", "agent": "用户", "stage": "", "content": req.task})
+    topic = req.task[:50]
+    _save_session(sid, user_id, topic, "running", "", messages)
+
+    log.info(f"[{sid}] Code Agent 请求 | user={user_id} task={req.task[:50]}")
+
+    from research_agent.streaming import create_stream
+    create_stream(sid)
+
+    t = threading.Thread(
+        target=_run_code_agent,
+        args=(sid, user_id, req.task, req.context),
+    )
+    t.start()
+
+    return {"session_id": sid, "status": "running", "mode": "code"}
+
+
 # ── 代码沙箱执行 API ─────────────────────────────────────────
 
 class CodeExecuteRequest(BaseModel):
@@ -752,6 +860,141 @@ def execute_code_api(req: CodeExecuteRequest, request: Request):
 
     log.info(f"代码执行结果 | user={user_id} success={result.success} duration={result.duration}s")
     return result.to_dict()
+
+
+# ── 设置 API ─────────────────────────────────────────────────
+
+SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "settings.json")
+
+
+def _load_settings() -> dict:
+    """加载设置"""
+    defaults = {
+        "python_path": "",
+        "work_dir": "",
+        "model_name": "kimi-k2.5",
+        "model_base_url": os.environ.get("MOONSHOT_API_BASE", "https://api.moonshot.cn/v1"),
+        "model_api_key": os.environ.get("MOONSHOT_API_KEY", ""),
+    }
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+            # 合并，保留已保存的值
+            for k, v in saved.items():
+                if v:  # 只覆盖非空值
+                    defaults[k] = v
+        except Exception:
+            pass
+    return defaults
+
+
+def _save_settings(settings: dict):
+    """保存设置到文件"""
+    with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+        json.dump(settings, f, ensure_ascii=False, indent=2)
+    # 同步更新环境变量
+    if settings.get("model_api_key"):
+        os.environ["MOONSHOT_API_KEY"] = settings["model_api_key"]
+    if settings.get("model_base_url"):
+        os.environ["MOONSHOT_API_BASE"] = settings["model_base_url"]
+
+
+@app.get("/api/settings")
+def get_settings(request: Request):
+    """获取当前设置"""
+    get_current_user(request)
+    settings = _load_settings()
+    # API Key 脱敏
+    masked = dict(settings)
+    if masked.get("model_api_key"):
+        key = masked["model_api_key"]
+        masked["model_api_key"] = key[:4] + "****" + key[-4:] if len(key) > 8 else "****"
+    return {"settings": masked}
+
+
+class SettingsRequest(BaseModel):
+    python_path: str = ""
+    work_dir: str = ""
+    model_name: str = ""
+    model_base_url: str = ""
+    model_api_key: str = ""
+
+
+@app.post("/api/settings")
+def save_settings(req: SettingsRequest, request: Request):
+    """保存设置"""
+    get_current_user(request)
+    current = _load_settings()
+    
+    # 更新字段
+    if req.python_path is not None:
+        current["python_path"] = req.python_path
+    if req.work_dir is not None:
+        current["work_dir"] = req.work_dir
+    if req.model_name:
+        current["model_name"] = req.model_name
+    if req.model_base_url:
+        current["model_base_url"] = req.model_base_url
+    if req.model_api_key and "****" not in req.model_api_key:
+        current["model_api_key"] = req.model_api_key
+    
+    _save_settings(current)
+    log.info(f"设置已保存 | model={current['model_name']} base_url={current['model_base_url']}")
+    return {"ok": True}
+
+
+@app.post("/api/settings/reset")
+def reset_settings(request: Request):
+    """恢复默认设置"""
+    get_current_user(request)
+    defaults = {
+        "python_path": "",
+        "work_dir": "",
+        "model_name": "kimi-k2.5",
+        "model_base_url": "https://api.moonshot.cn/v1",
+        "model_api_key": os.environ.get("MOONSHOT_API_KEY", ""),
+    }
+    _save_settings(defaults)
+    # 脱敏返回
+    masked = dict(defaults)
+    if masked.get("model_api_key"):
+        key = masked["model_api_key"]
+        masked["model_api_key"] = key[:4] + "****" + key[-4:] if len(key) > 8 else "****"
+    return {"settings": masked}
+
+
+class BrowseDirRequest(BaseModel):
+    path: str = ""
+
+
+@app.post("/api/browse-dir")
+def browse_directory(req: BrowseDirRequest, request: Request):
+    """浏览目录，返回子目录列表"""
+    get_current_user(request)
+    
+    # 默认从用户主目录开始
+    base = req.path or os.path.expanduser("~")
+    if not os.path.isdir(base):
+        base = os.path.expanduser("~")
+    
+    items = []
+    try:
+        for name in sorted(os.listdir(base)):
+            full = os.path.join(base, name)
+            if os.path.isdir(full) and not name.startswith('.'):
+                items.append(name)
+    except PermissionError:
+        pass
+    
+    # 获取父目录
+    parent = os.path.dirname(base)
+    
+    return {
+        "current": base,
+        "parent": parent if parent != base else "",
+        "dirs": items[:50],  # 最多 50 个
+    }
 
 
 # ── 前端页面 ──────────────────────────────────────────────────

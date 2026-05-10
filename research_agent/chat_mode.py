@@ -22,7 +22,7 @@ LEAD_SYSTEM = """\
 - @文献调研研究员：搜索 arXiv 真实论文并撰写文献综述
 - @假设生成研究员：基于文献提出可验证的科学假设
 - @实验设计研究员：设计完整实验方案（数据集、模型、评估指标）
-- @代码实现研究员：生成可运行的 Python 实验代码
+- @代码实现研究员：生成、验证、执行 Python 代码，自动修复错误（支持文件操作和 Shell 命令）
 - @数据分析研究员：分析实验结果、统计检验、可视化
 - @论文撰写研究员：撰写学术论文或论文片段
 
@@ -36,6 +36,7 @@ LEAD_SYSTEM = """\
 2. **自主判断调用时机**：根据对话上下文判断是否需要调用研究员，以及调用谁。不需要用户明确指示。例如：
    - 用户提到一个研究课题 → 你可以主动建议先做文献调研
    - 用户说"帮我写个实验" → 你判断是否已有足够背景信息，不够就先追问或先调文献
+   - 用户说"写个代码"、"实现一个算法"、"运行一下" → 调用 @代码实现研究员
    - 用户问一个简单问题 → 直接回答，不调用任何研究员
 
 3. **一次只调用一个研究员**：每轮对话最多调用一个研究员，等结果出来后再决定下一步。
@@ -188,6 +189,48 @@ def chat_turn(sid: str, user_id: int, user_message: str,
         log.info(f"[{sid}] Lead 调用 {display_name} | task={task[:50]}")
 
         push_status(sid, "stage_start", {"stage": stage, "agent": display_name})
+
+        # 代码研究员使用 Agent Loop（自动生成、验证、执行、修复）
+        if agent_key == "experiment_code":
+            push_status(sid, "info", {"message": "@代码实现研究员 正在工作中..."})
+            push_status(sid, "agent_start", {"agent": display_name, "task": task[:100]})
+            
+            try:
+                from research_agent.code_agent import run_code_agent
+                result = run_code_agent(
+                    sid=sid,
+                    user_id=user_id,
+                    task=task,
+                    context=history_text[-2000:],
+                    memory_context=memory_context,
+                )
+                
+                # 构建响应消息
+                if result["success"]:
+                    agent_response = f"代码执行成功！\n\n```python\n{result['code']}\n```\n\n**执行输出：**\n```\n{result['output']}\n```"
+                else:
+                    agent_response = f"代码执行失败（尝试 {result['attempts']} 次）\n\n```python\n{result['code']}\n```\n\n**错误信息：**\n```\n{result['error']}\n```\n\n请告诉我需要如何调整，或者提供更多信息。"
+                
+                # 推送完成状态
+                push_status(sid, "agent_done", {
+                    "success": result["success"],
+                    "steps": result["steps"],
+                })
+                
+                new_messages.append({
+                    "role": "agent", "agent": display_name,
+                    "stage": stage, "content": agent_response,
+                    "agent_steps": result["steps"],
+                })
+            except Exception as e:
+                log.error(f"[{sid}] 代码研究员执行异常: {e}", exc_info=True)
+                push_status(sid, "agent_done", {"success": False, "steps": []})
+                new_messages.append({
+                    "role": "agent", "agent": display_name,
+                    "stage": stage, "content": f"代码执行出错：{str(e)}\n\n请稍后重试或换一种方式描述需求。",
+                })
+            
+            return new_messages
 
         # 文献调研需要先搜索论文
         extra_context = ""
