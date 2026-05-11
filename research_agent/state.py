@@ -23,6 +23,8 @@ class ResearchState(TypedDict):
     human_feedback: str
     # 当前阶段名称
     current_stage: str
+    # Lead Router 决定的下一阶段
+    next_stage: str
     # 会话 ID（用于流式输出）
     session_id: str
     # 用户 ID（用于长期记忆）

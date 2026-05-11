@@ -37,12 +37,17 @@ def literature_review_agent(state: ResearchState) -> dict:
     push_status(sid, "stage_start", {"stage": "literature_review", "agent": "@文献调研研究员"})
     log.info(f"[{sid}] 文献调研开始 | topic={topic[:50]}")
 
-    # Step 1: 生成搜索关键词
+    # Step 1: 生成搜索关键词（不流式推送，避免大量关键词显示在前端）
     push_status(sid, "info", {"message": "正在生成搜索关键词..."})
-    keyword_text = invoke_llm_streaming(
-        sid, KEYWORD_PROMPT, "研究课题：{topic}", {"topic": topic},
-        thinking=False, memory_context=memory,
-    )
+    
+    from langchain_moonshot import ChatMoonshot
+    kw_llm = ChatMoonshot(model="kimi-k2.5", thinking=False, temperature=0.6)
+    kw_result = kw_llm.invoke([
+        ("system", KEYWORD_PROMPT),
+        ("human", f"研究课题：{topic}"),
+    ])
+    keyword_text = kw_result.content
+    
     # 硬截断：只取前 2 行非空关键词
     keywords = [line.strip() for line in keyword_text.strip().split("\n") if line.strip()][:2]
     log.info(f"[{sid}] 关键词: {keywords}")

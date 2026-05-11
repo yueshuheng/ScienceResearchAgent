@@ -107,19 +107,38 @@ def _call_llm(sid: str, system: str, user: str, stream_tokens: bool = False) -> 
     Args:
         stream_tokens: 是否将 token 推送到前端（默认 False，代码生成时不需要）
     """
-    # 从设置中读取模型配置
+    # 从设置中读取代码模型配置（优先使用代码模型，否则用通用模型）
     model_name = "kimi-k2.5"
+    base_url = ""
+    api_key = ""
     try:
         settings_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "settings.json")
         if os.path.exists(settings_file):
             with open(settings_file, "r") as f:
                 _settings = json.load(f)
-            if _settings.get("model_name"):
+            # 优先使用代码模型配置
+            if _settings.get("code_model_name"):
+                model_name = _settings["code_model_name"]
+                base_url = _settings.get("code_model_base_url", "")
+                api_key = _settings.get("code_model_api_key", "")
+            elif _settings.get("model_name"):
                 model_name = _settings["model_name"]
+            # 如果代码模型没有单独的 base_url/key，用通用的
+            if not base_url:
+                base_url = _settings.get("model_base_url", "")
+            if not api_key:
+                api_key = _settings.get("model_api_key", "")
     except Exception:
         pass
     
-    llm = ChatMoonshot(model=model_name, thinking=False, temperature=0.6, timeout=120)
+    # 构建 LLM 参数
+    llm_kwargs: dict = {"model": model_name, "thinking": False, "temperature": 0.6, "timeout": 120}
+    if base_url:
+        llm_kwargs["base_url"] = base_url
+    if api_key:
+        llm_kwargs["api_key"] = api_key
+    
+    llm = ChatMoonshot(**llm_kwargs)
     
     # 构建消息列表，如果 system 为空则只用 human
     if system:

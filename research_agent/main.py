@@ -1,12 +1,16 @@
 """
 科研智能体 - 基于 LangGraph 的多阶段科研工作流
 
-流程：用户输入课题 → 文献调研 → 假设生成 → 实验设计 → 实验代码 → 结果分析 → 论文初稿
-每个阶段结束后暂停，等待用户确认或补充信息后再继续。
+流程由 Lead Agent 引导：
+- 每个阶段结束后，Lead Agent 分析用户反馈，决定下一步走向
+- 支持重做当前阶段、跳转到任意阶段、继续下一步、结束流程
+- 用户通过自然语言描述需求，Lead Agent 理解并路由
 """
 
 from __future__ import annotations
 
+import json
+import re
 from dotenv import load_dotenv
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -33,49 +37,103 @@ STAGE_NAMES = {
     "paper": "📝 论文初稿",
 }
 
-# ── Human-in-the-loop 节点 ────────────────────────────────────
+# 阶段顺序（默认流程）
+STAGE_ORDER = [
+    "literature_review", "hypothesis", "experiment_design",
+    "experiment", "analysis", "paper",
+]
 
-def human_review_after_literature(state: ResearchState) -> dict:
-    """文献调研后的人工审核断点 — 如果用户补充了论文，追加到文献综述"""
-    feedback = state.get("human_feedback", "").strip()
-    if not feedback:
-        return {}
-    # 把用户补充的论文/信息追加到文献综述末尾
-    current = state.get("literature_review", "")
-    supplement = f"\n\n---\n\n## 用户补充的参考文献/信息\n\n{feedback}"
-    return {"literature_review": current + supplement, "human_feedback": ""}
+# ── Lead Router 节点 ──────────────────────────────────────────
 
-def human_review_after_hypothesis(state: ResearchState) -> dict:
-    """假设生成后的人工审核断点 — 补充信息追加到假设"""
-    feedback = state.get("human_feedback", "").strip()
-    if not feedback:
-        return {}
-    current = state.get("hypothesis", "")
-    return {"hypothesis": current + f"\n\n---\n\n## 用户补充\n\n{feedback}", "human_feedback": ""}
+LEAD_ROUTER_PROMPT = """\
+你是科研项目负责人。当前研究流程刚完成了一个阶段，你需要根据用户的反馈决定下一步。
 
-def human_review_after_design(state: ResearchState) -> dict:
-    """实验方案设计后的人工审核断点 — 补充信息追加到实验方案"""
-    feedback = state.get("human_feedback", "").strip()
-    if not feedback:
-        return {}
-    current = state.get("experiment_design", "")
-    return {"experiment_design": current + f"\n\n---\n\n## 用户补充\n\n{feedback}", "human_feedback": ""}
+## 当前状态
+- 刚完成的阶段: {current_stage}
+- 默认下一阶段: {next_stage}
+- 用户反馈: {feedback}
 
-def human_review_after_experiment(state: ResearchState) -> dict:
-    """实验代码后的人工审核断点 — 补充信息追加到实验代码"""
-    feedback = state.get("human_feedback", "").strip()
-    if not feedback:
-        return {}
-    current = state.get("experiment_code", "")
-    return {"experiment_code": current + f"\n\n---\n\n## 用户补充\n\n{feedback}", "human_feedback": ""}
+## 可选的下一步
+- literature_review: 文献调研（搜索论文、下载论文、扩展关键词、补充文献）
+- hypothesis: 假设生成
+- experiment_design: 实验方案设计
+- experiment: 实验代码生成
+- analysis: 结果分析
+- paper: 论文初稿
+- done: 结束流程
 
-def human_review_after_analysis(state: ResearchState) -> dict:
-    """结果分析后的人工审核断点 — 补充信息追加到分析结果"""
+## 判断规则
+1. 如果用户没有反馈或说"继续"、"下一步"、"好的" → 选择默认下一阶段
+2. 如果用户提到论文相关操作（"下载论文"、"搜索更多"、"扩展关键词"、"补充文献"、"重新搜索"） → 选择 literature_review
+3. 如果用户要求重做当前阶段（"重做"、"重新"、"换个方向"、"不满意"） → 选择当前阶段对应的名称
+4. 如果用户明确指定了某个阶段（"帮我写代码"、"直接写论文"、"生成假设"） → 选择对应阶段
+5. 如果用户说"结束"、"够了"、"完成" → 选择 done
+
+请只输出一个 JSON：
+{{"next": "阶段名称", "message": "给用户的简短回复（一句话，自然口语化）"}}
+"""
+
+
+def lead_router(state: ResearchState) -> dict:
+    """Lead Agent 路由节点：用 LLM 分析用户反馈，决定下一步走向"""
+    from langchain_moonshot import ChatMoonshot
+    from research_agent.logger import get_logger
+    _log = get_logger("lead_router")
+
     feedback = state.get("human_feedback", "").strip()
+    current_stage = state.get("current_stage", "")
+
+    _log.info(f"Lead Router | stage={current_stage} feedback='{feedback[:80] if feedback else ''}'")
+
+    # 确定默认下一阶段
+    if current_stage in STAGE_ORDER:
+        idx = STAGE_ORDER.index(current_stage)
+        next_stage = STAGE_ORDER[idx + 1] if idx + 1 < len(STAGE_ORDER) else "done"
+    else:
+        next_stage = "literature_review"
+
+    # 唯一的快速路径：没有反馈 = 继续
     if not feedback:
-        return {}
-    current = state.get("analysis_result", "")
-    return {"analysis_result": current + f"\n\n---\n\n## 用户补充\n\n{feedback}", "human_feedback": ""}
+        _log.info(f"Lead Router | 无反馈 → {next_stage}")
+        return {"next_stage": next_stage, "human_feedback": ""}
+
+    # 全部交给 LLM 判断
+    try:
+        llm = ChatMoonshot(model="kimi-k2.5", thinking=False, temperature=0.6)
+        prompt = LEAD_ROUTER_PROMPT.format(
+            current_stage=STAGE_NAMES.get(current_stage, current_stage),
+            next_stage=STAGE_NAMES.get(next_stage, next_stage),
+            feedback=feedback,
+        )
+        result = llm.invoke([("human", prompt)])
+        content = result.content.strip()
+        _log.info(f"Lead Router | LLM: {content[:120]}")
+
+        # 解析 JSON
+        match = re.search(r'\{.*\}', content, re.DOTALL)
+        if match:
+            data = json.loads(match.group())
+            target = data.get("next", next_stage)
+            _log.info(f"Lead Router | 决策: {target}")
+            if target in STAGE_ORDER or target == "done":
+                keep_feedback = feedback if target == current_stage else ""
+                return {"next_stage": target, "human_feedback": keep_feedback}
+    except Exception as e:
+        _log.error(f"Lead Router | 错误: {e}")
+
+    # fallback: 默认继续
+    _log.info(f"Lead Router | fallback → {next_stage}")
+    return {"next_stage": next_stage, "human_feedback": ""}
+
+
+def _route_from_lead(state: ResearchState) -> str:
+    """从 lead_router 的输出决定走向哪个节点"""
+    target = state.get("next_stage", "")
+    if target == "done":
+        return "end"
+    if target in STAGE_ORDER:
+        return target
+    return "end"
 
 
 # ── 构建 Graph ────────────────────────────────────────────────
@@ -84,32 +142,28 @@ def build_graph() -> StateGraph:
     """构建科研工作流 Graph"""
     builder = StateGraph(ResearchState)
 
-    # 添加所有节点
+    # 添加研究员节点
     builder.add_node("literature_review", literature_review_agent)
-    builder.add_node("human_after_literature", human_review_after_literature)
     builder.add_node("hypothesis", hypothesis_agent)
-    builder.add_node("human_after_hypothesis", human_review_after_hypothesis)
     builder.add_node("experiment_design", experiment_design_agent)
-    builder.add_node("human_after_design", human_review_after_design)
     builder.add_node("experiment", experiment_code_agent)
-    builder.add_node("human_after_experiment", human_review_after_experiment)
     builder.add_node("analysis", analysis_agent)
-    builder.add_node("human_after_analysis", human_review_after_analysis)
     builder.add_node("paper", paper_agent)
 
-    # 定义边
+    # Lead Router 节点
+    builder.add_node("lead_router", lead_router)
+
+    # 起始边
     builder.add_edge(START, "literature_review")
-    builder.add_edge("literature_review", "human_after_literature")
-    builder.add_edge("human_after_literature", "hypothesis")
-    builder.add_edge("hypothesis", "human_after_hypothesis")
-    builder.add_edge("human_after_hypothesis", "experiment_design")
-    builder.add_edge("experiment_design", "human_after_design")
-    builder.add_edge("human_after_design", "experiment")
-    builder.add_edge("experiment", "human_after_experiment")
-    builder.add_edge("human_after_experiment", "analysis")
-    builder.add_edge("analysis", "human_after_analysis")
-    builder.add_edge("human_after_analysis", "paper")
-    builder.add_edge("paper", END)
+
+    # 每个研究员完成后 → lead_router（中断等待用户输入）
+    for stage in STAGE_ORDER:
+        builder.add_edge(stage, "lead_router")
+
+    # lead_router 根据决策路由到下一个节点
+    route_map = {stage: stage for stage in STAGE_ORDER}
+    route_map["end"] = END
+    builder.add_conditional_edges("lead_router", _route_from_lead, route_map)
 
     return builder
 
@@ -124,9 +178,6 @@ DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "checkpoints.
 def create_app(db_path: str | None = None):
     """
     创建带持久化 checkpointer 的可运行 Graph 实例。
-
-    Args:
-        db_path: SQLite 数据库路径，默认为项目根目录下的 checkpoints.db
     """
     builder = build_graph()
     path = db_path or DB_PATH
@@ -135,12 +186,6 @@ def create_app(db_path: str | None = None):
     checkpointer.setup()
     graph = builder.compile(
         checkpointer=checkpointer,
-        interrupt_before=[
-            "human_after_literature",
-            "human_after_hypothesis",
-            "human_after_design",
-            "human_after_experiment",
-            "human_after_analysis",
-        ],
+        interrupt_before=["lead_router"],  # 在 lead_router 前中断，等待用户输入
     )
     return graph

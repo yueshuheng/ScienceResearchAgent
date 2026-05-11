@@ -69,11 +69,7 @@ STAGE_ORDER = [
 ]
 
 INTERRUPT_TO_STAGE_IDX = {
-    "human_after_literature": 0,
-    "human_after_hypothesis": 1,
-    "human_after_design": 2,
-    "human_after_experiment": 3,
-    "human_after_analysis": 4,
+    "lead_router": -1,  # lead_router 中断，阶段由 current_stage 决定
 }
 
 # ── 会话数据库 ────────────────────────────────────────────────
@@ -176,37 +172,42 @@ def _run_graph_step_streaming(sid: str, user_id: int,
     try:
         if initial_state is not None:
             result = None
+            last_content = {}  # 记录每个阶段上次推送的内容长度
             for event in graph.stream(initial_state, config, stream_mode="values"):
                 result = event
-                # 检查是否有新的阶段输出，流式推送
                 stage = event.get("current_stage", "")
                 if stage:
                     output_key = STAGE_OUTPUT_KEY.get(stage, "")
                     content = event.get(output_key, "")
                     if content:
-                        _send_sse(sid, "token", {
-                            "agent": AGENT_NAMES.get(stage, f"@{stage}"),
-                            "stage": stage,
-                            "content": content,
-                            "done": False,
-                        })
+                        # 只推送新增的内容（增量）
+                        prev_len = last_content.get(stage, 0)
+                        if len(content) > prev_len:
+                            from research_agent.streaming import push_token
+                            push_token(sid, content[prev_len:])
+                            last_content[stage] = len(content)
         else:
             if feedback:
                 graph.update_state(config, {"human_feedback": feedback})
             result = None
+            last_content = {}
+            prev_stage = ""  # 跟踪阶段变化
             for event in graph.stream(None, config, stream_mode="values"):
                 result = event
                 stage = event.get("current_stage", "")
                 if stage:
+                    # 阶段变化时重置该阶段的计数器
+                    if stage != prev_stage:
+                        last_content[stage] = 0
+                        prev_stage = stage
                     output_key = STAGE_OUTPUT_KEY.get(stage, "")
                     content = event.get(output_key, "")
                     if content:
-                        _send_sse(sid, "token", {
-                            "agent": AGENT_NAMES.get(stage, f"@{stage}"),
-                            "stage": stage,
-                            "content": content,
-                            "done": False,
-                        })
+                        prev_len = last_content.get(stage, 0)
+                        if len(content) > prev_len:
+                            from research_agent.streaming import push_token
+                            push_token(sid, content[prev_len:])
+                            last_content[stage] = len(content)
 
         snapshot = graph.get_state(config)
         log.info(f"[{sid}] Graph step 完成 | next={snapshot.next}")
@@ -247,29 +248,25 @@ def _run_graph_step_streaming(sid: str, user_id: int,
                     log.warning(f"[{sid}] 长期记忆提取失败: {me}")
         else:
             next_node = snapshot.next[0]
-            stage_idx = INTERRUPT_TO_STAGE_IDX.get(next_node)
-            if stage_idx is not None:
-                stage = STAGE_ORDER[stage_idx]
-                output_key = STAGE_OUTPUT_KEY.get(stage, "")
-                content = ""
-                if result and output_key:
-                    content = result.get(output_key, "")
-                elif output_key:
-                    content = snapshot.values.get(output_key, "")
+            # lead_router 中断：获取当前阶段信息
+            stage = snapshot.values.get("current_stage", "")
+            output_key = STAGE_OUTPUT_KEY.get(stage, "")
+            content = ""
+            if result and output_key:
+                content = result.get(output_key, "")
+            elif output_key:
+                content = snapshot.values.get(output_key, "")
+            if content:
                 messages.append({
                     "role": "agent",
                     "agent": AGENT_NAMES.get(stage, f"@{stage}"),
                     "stage": stage, "content": content,
                 })
-                _save_session(sid, user_id, session["topic"], "waiting", stage, messages)
-                _send_sse(sid, "stage_done", {
-                    "status": "waiting", "stage": stage,
-                    "agent": AGENT_NAMES.get(stage, ""),
-                })
-            else:
-                _save_session(sid, user_id, session["topic"], "waiting",
-                              session["current_stage"], messages)
-                _send_sse(sid, "stage_done", {"status": "waiting", "stage": session["current_stage"]})
+            _save_session(sid, user_id, session["topic"], "waiting", stage, messages)
+            _send_sse(sid, "stage_done", {
+                "status": "waiting", "stage": stage,
+                "agent": AGENT_NAMES.get(stage, ""),
+            })
 
     except Exception as e:
         log.error(f"[{sid}] Graph step 异常: {e}", exc_info=True)
@@ -291,15 +288,24 @@ def _run_graph_step_streaming(sid: str, user_id: int,
 # ── App 初始化 ────────────────────────────────────────────────
 
 graph = None
+citation_service = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global graph
+    global graph, citation_service
     init_user_db()
     _init_sessions_db()
     from research_agent.memory import init_memory_db
     init_memory_db()
+    from research_agent.citation import init_citation_db, CitationGraphService, PaperStore, ReferenceParser
+    init_citation_db()
+    # Create global citation service instance
+    pdf_dir = os.path.join(os.path.dirname(__file__), "papers")
+    citation_db = os.path.join(os.path.dirname(__file__), "citation.db")
+    paper_store = PaperStore(db_path=citation_db, pdf_dir=pdf_dir)
+    ref_parser = ReferenceParser(db_path=citation_db)
+    citation_service = CitationGraphService(paper_store=paper_store, ref_parser=ref_parser)
     graph = create_app()
     yield
 
@@ -875,6 +881,9 @@ def _load_settings() -> dict:
         "model_name": "kimi-k2.5",
         "model_base_url": os.environ.get("MOONSHOT_API_BASE", "https://api.moonshot.cn/v1"),
         "model_api_key": os.environ.get("MOONSHOT_API_KEY", ""),
+        "code_model_name": "",
+        "code_model_base_url": "",
+        "code_model_api_key": "",
     }
     if os.path.exists(SETTINGS_FILE):
         try:
@@ -919,6 +928,9 @@ class SettingsRequest(BaseModel):
     model_name: str = ""
     model_base_url: str = ""
     model_api_key: str = ""
+    code_model_name: str = ""
+    code_model_base_url: str = ""
+    code_model_api_key: str = ""
 
 
 @app.post("/api/settings")
@@ -938,6 +950,12 @@ def save_settings(req: SettingsRequest, request: Request):
         current["model_base_url"] = req.model_base_url
     if req.model_api_key and "****" not in req.model_api_key:
         current["model_api_key"] = req.model_api_key
+    if req.code_model_name is not None:
+        current["code_model_name"] = req.code_model_name
+    if req.code_model_base_url is not None:
+        current["code_model_base_url"] = req.code_model_base_url
+    if req.code_model_api_key and "****" not in req.code_model_api_key:
+        current["code_model_api_key"] = req.code_model_api_key
     
     _save_settings(current)
     log.info(f"设置已保存 | model={current['model_name']} base_url={current['model_base_url']}")
@@ -994,6 +1012,79 @@ def browse_directory(req: BrowseDirRequest, request: Request):
         "current": base,
         "parent": parent if parent != base else "",
         "dirs": items[:50],  # 最多 50 个
+    }
+
+
+# ── 引用图 API ───────────────────────────────────────────────
+
+class CitationDownloadRequest(BaseModel):
+    session_id: str
+    papers: list[dict]  # [{arxiv_id, title, authors, year, url}]
+
+
+@app.post("/api/citation/download", status_code=202)
+async def download_papers(req: CitationDownloadRequest, request: Request):
+    """批量下载论文（返回 202 + task_id）"""
+    from research_agent.citation import PaperDownloadRequest as PDR
+    user_id = get_current_user(request)
+    papers = [PDR(**p) for p in req.papers]
+    task_id = await citation_service.download_papers(req.session_id, papers)
+    return {"task_id": task_id, "status": "accepted"}
+
+
+@app.get("/api/citation/graph")
+def get_citation_graph(session_id: str, request: Request):
+    """获取会话引用图（nodes + edges）"""
+    user_id = get_current_user(request)
+    graph_data = citation_service.get_graph(session_id)
+    return {
+        "nodes": [
+            {
+                "arxiv_id": n.arxiv_id,
+                "title": n.title,
+                "authors": n.authors,
+                "year": n.year,
+                "abstract": n.abstract,
+                "download_status": n.download_status,
+            }
+            for n in graph_data.nodes
+        ],
+        "edges": graph_data.edges,
+    }
+
+
+@app.get("/api/citation/status/{task_id}")
+def get_download_status(task_id: str, request: Request):
+    """查询下载任务状态"""
+    user_id = get_current_user(request)
+    try:
+        status = citation_service.get_download_status(task_id)
+        return {
+            "task_id": status.task_id,
+            "total": status.total,
+            "completed": status.completed,
+            "failed": status.failed,
+            "status": status.status,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.get("/api/citation/paper/{arxiv_id}")
+def get_paper_detail(arxiv_id: str, request: Request):
+    """获取单篇论文详情"""
+    user_id = get_current_user(request)
+    paper = citation_service.paper_store.get_paper(arxiv_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="论文不存在")
+    return {
+        "arxiv_id": paper.arxiv_id,
+        "title": paper.title,
+        "authors": paper.authors,
+        "year": paper.year,
+        "abstract": paper.abstract,
+        "pdf_path": paper.pdf_path,
+        "download_status": paper.download_status,
     }
 
 

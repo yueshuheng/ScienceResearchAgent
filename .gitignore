@@ -225,3 +225,10 @@ __marimo__/
 
 Futuristic AI Chat Interface
 desktop
+
+*.db
+*.db-shm
+*.db-wal
+*.env
+settings.json
+papers/

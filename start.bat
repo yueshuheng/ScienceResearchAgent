@@ -18,13 +18,9 @@ if not exist ".venv\Scripts\activate.bat" (
 :: 激活虚拟环境
 call .venv\Scripts\activate.bat
 
-:: 检查依赖
-echo [Step 1/3] 检查环境...
-python -c "import fastapi" 2>nul
-if errorlevel 1 (
-    echo [提示] 正在安装依赖...
-    pip install -r requirements.txt
-)
+:: 安装/更新依赖
+echo [Step 1/3] 安装依赖...
+uv pip install -r research_agent/requirements.txt --python .venv\Scripts\python.exe -q
 
 :: 构建前端（如果需要）
 if not exist "Futuristic AI Chat Interface\dist\index.html" (
@@ -46,6 +42,6 @@ echo    按 Ctrl+C 停止服务
 echo ========================================
 echo.
 
-uvicorn server:app --host 0.0.0.0 --port 8000 --reload
+.venv\Scripts\python.exe -m uvicorn server:app --host 0.0.0.0 --port 8000 --reload
 
 pause
